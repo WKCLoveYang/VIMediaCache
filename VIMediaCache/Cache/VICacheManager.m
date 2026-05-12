@@ -25,7 +25,8 @@ static NSString *(^kMCFileNameRules)(NSURL *url);
 + (void)load {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        [self setCacheDirectory:[NSTemporaryDirectory() stringByAppendingPathComponent:@"vimedia"]];
+        NSString *documentsDirectory = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        [self setCacheDirectory:[documentsDirectory stringByAppendingPathComponent:@"vimedia"]];
         [self setCacheUpdateNotifyInterval:0.1];
     });
 }
