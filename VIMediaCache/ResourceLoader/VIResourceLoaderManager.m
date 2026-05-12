@@ -8,8 +8,10 @@
 
 #import "VIResourceLoaderManager.h"
 #import "VIResourceLoader.h"
+#import <objc/runtime.h>
 
 static NSString *kCacheScheme = @"VIMediaCache:";
+static const void *kVIResourceLoaderManagerRetainKey = &kVIResourceLoaderManagerRetainKey;
 
 @interface VIResourceLoaderManager () <VIResourceLoaderDelegate>
 
@@ -112,6 +114,8 @@ static NSString *kCacheScheme = @"VIMediaCache:";
     AVURLAsset *urlAsset = [AVURLAsset URLAssetWithURL:assetURL options:nil];
     [urlAsset.resourceLoader setDelegate:self queue:dispatch_get_main_queue()];
     AVPlayerItem *playerItem = [AVPlayerItem playerItemWithAsset:urlAsset];
+    // Keep manager alive during the item lifecycle.
+    objc_setAssociatedObject(playerItem, kVIResourceLoaderManagerRetainKey, self, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if ([playerItem respondsToSelector:@selector(setCanUseNetworkResourcesForLiveStreamingWhilePaused:)]) {
         playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = YES;
     }
