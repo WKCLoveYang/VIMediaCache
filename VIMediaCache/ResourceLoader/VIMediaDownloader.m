@@ -278,11 +278,13 @@ didCompleteWithError:(nullable NSError *)error {
           dataTask:(NSURLSessionDataTask *)dataTask
 didReceiveResponse:(NSURLResponse *)response
  completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completionHandler {
-    NSString *mimeType = response.MIMEType;
+    NSString *mimeType = [response.MIMEType lowercaseString];
     // Only download video/audio data
-    if ([mimeType rangeOfString:@"video/"].location == NSNotFound &&
-        [mimeType rangeOfString:@"audio/"].location == NSNotFound &&
-        [mimeType rangeOfString:@"application"].location == NSNotFound) {
+    BOOL allowedMIMEType = (mimeType.length == 0 ||
+                            [mimeType hasPrefix:@"video/"] ||
+                            [mimeType hasPrefix:@"audio/"] ||
+                            [mimeType hasPrefix:@"application/"]);
+    if (!allowedMIMEType) {
         completionHandler(NSURLSessionResponseCancel);
     } else {
         if ([self.delegate respondsToSelector:@selector(actionWorker:didReceiveResponse:)]) {
@@ -466,13 +468,38 @@ didCompleteWithError:(nullable NSError *)error {
         
         if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
             NSHTTPURLResponse *HTTPURLResponse = (NSHTTPURLResponse *)response;
-            NSString *acceptRange = HTTPURLResponse.allHeaderFields[@"Accept-Ranges"];
-            info.byteRangeAccessSupported = [acceptRange isEqualToString:@"bytes"];
-            info.contentLength = [[[HTTPURLResponse.allHeaderFields[@"Content-Range"] componentsSeparatedByString:@"/"] lastObject] longLongValue];
+            NSDictionary *headers = HTTPURLResponse.allHeaderFields;
+            NSString *acceptRange = [headers[@"Accept-Ranges"] lowercaseString];
+            info.byteRangeAccessSupported = ([acceptRange rangeOfString:@"bytes"].location != NSNotFound) || HTTPURLResponse.statusCode == 206;
+            
+            NSString *contentRange = headers[@"Content-Range"];
+            if ([contentRange isKindOfClass:[NSString class]] && [contentRange rangeOfString:@"/"].location != NSNotFound) {
+                info.contentLength = [[[contentRange componentsSeparatedByString:@"/"] lastObject] longLongValue];
+            }
+            
+            if (info.contentLength <= 0) {
+                NSString *contentLength = headers[@"Content-Length"];
+                if ([contentLength isKindOfClass:[NSString class]]) {
+                    info.contentLength = [contentLength longLongValue];
+                }
+            }
         }
+        
+        if (info.contentLength <= 0) {
+            info.contentLength = response.expectedContentLength;
+        }
+        
         NSString *mimeType = response.MIMEType;
-        CFStringRef contentType = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, (__bridge CFStringRef)(mimeType), NULL);
-        info.contentType = CFBridgingRelease(contentType);
+        if (mimeType.length > 0) {
+            CFStringRef contentType = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, (__bridge CFStringRef)(mimeType), NULL);
+            info.contentType = CFBridgingRelease(contentType);
+        }
+        if (!info.contentType) {
+            NSString *fileExtension = self.url.pathExtension;
+            if (fileExtension.length > 0) {
+                info.contentType = (__bridge_transfer NSString *)UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)fileExtension, NULL);
+            }
+        }
         self.info = info;
         
         NSError *error;
