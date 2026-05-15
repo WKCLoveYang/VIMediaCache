@@ -8,7 +8,7 @@
 
 #import "VIMediaDownloader.h"
 #import "VIContentInfo.h"
-#import <MobileCoreServices/MobileCoreServices.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "VICacheSessionManager.h"
 
 #import "VIMediaCacheWorker.h"
@@ -386,7 +386,9 @@ didCompleteWithError:(nullable NSError *)error {
 }
 
 - (NSSet *)urls {
-    return [self.downloadingURLS copy];
+    @synchronized (self.downloadingURLS) {
+        return [self.downloadingURLS copy];
+    }
 }
 
 @end
@@ -430,7 +432,17 @@ didCompleteWithError:(nullable NSError *)error {
     NSRange range = NSMakeRange((NSUInteger)fromOffset, length);
     
     if (toEnd) {
-        range.length = (NSUInteger)self.cacheWorker.cacheConfiguration.contentInfo.contentLength - range.location;
+        long long contentLength = self.cacheWorker.cacheConfiguration.contentInfo.contentLength;
+        if (contentLength > 0) {
+            unsigned long long safeContentLength = (unsigned long long)contentLength;
+            if (fromOffset >= safeContentLength) {
+                if ([self.delegate respondsToSelector:@selector(mediaDownloader:didFinishedWithError:)]) {
+                    [self.delegate mediaDownloader:self didFinishedWithError:nil];
+                }
+                return;
+            }
+            range.length = (NSUInteger)(safeContentLength - fromOffset);
+        }
     }
     
     NSArray *actions = [self.cacheWorker cachedDataActionsForRange:range];
@@ -491,13 +503,14 @@ didCompleteWithError:(nullable NSError *)error {
         
         NSString *mimeType = response.MIMEType;
         if (mimeType.length > 0) {
-            CFStringRef contentType = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, (__bridge CFStringRef)(mimeType), NULL);
-            info.contentType = CFBridgingRelease(contentType);
+            UTType *contentType = [UTType typeWithMIMEType:mimeType];
+            info.contentType = contentType.identifier;
         }
         if (!info.contentType) {
             NSString *fileExtension = self.url.pathExtension;
             if (fileExtension.length > 0) {
-                info.contentType = (__bridge_transfer NSString *)UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)fileExtension, NULL);
+                UTType *contentType = [UTType typeWithFilenameExtension:fileExtension];
+                info.contentType = contentType.identifier;
             }
         }
         self.info = info;
@@ -528,7 +541,14 @@ didCompleteWithError:(nullable NSError *)error {
     
     if (!error && self.downloadToEnd) {
         self.downloadToEnd = NO;
-        [self downloadTaskFromOffset:2 length:(NSUInteger)(self.cacheWorker.cacheConfiguration.contentInfo.contentLength - 2) toEnd:YES];
+        long long contentLength = self.cacheWorker.cacheConfiguration.contentInfo.contentLength;
+        if (contentLength <= 2) {
+            if ([self.delegate respondsToSelector:@selector(mediaDownloader:didFinishedWithError:)]) {
+                [self.delegate mediaDownloader:self didFinishedWithError:nil];
+            }
+            return;
+        }
+        [self downloadTaskFromOffset:2 length:(NSUInteger)(contentLength - 2) toEnd:YES];
     } else {
         if ([self.delegate respondsToSelector:@selector(mediaDownloader:didFinishedWithError:)]) {
             [self.delegate mediaDownloader:self didFinishedWithError:error];

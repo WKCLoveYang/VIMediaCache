@@ -8,7 +8,7 @@
 
 #import "VICacheConfiguration.h"
 #import "VICacheManager.h"
-#import <MobileCoreServices/MobileCoreServices.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 static NSString *kFileNameKey = @"kFileNameKey";
 static NSString *kCacheFragmentsKey = @"kCacheFragmentsKey";
@@ -29,7 +29,17 @@ static NSString *kURLKey = @"kURLKey";
 
 + (instancetype)configurationWithFilePath:(NSString *)filePath {
     filePath = [self configurationFilePathForFilePath:filePath];
-    VICacheConfiguration *configuration = [NSKeyedUnarchiver unarchiveObjectWithFile:filePath];
+    VICacheConfiguration *configuration = nil;
+    NSData *configurationData = [NSData dataWithContentsOfFile:filePath];
+    if (configurationData.length > 0) {
+        NSError *unarchiveError = nil;
+        NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingFromData:configurationData error:&unarchiveError];
+        if (unarchiver) {
+            unarchiver.requiresSecureCoding = NO;
+            configuration = [unarchiver decodeObjectForKey:NSKeyedArchiveRootObjectKey];
+            [unarchiver finishDecoding];
+        }
+    }
     
     if (!configuration) {
         configuration = [[VICacheConfiguration alloc] init];
@@ -152,7 +162,11 @@ static NSString *kURLKey = @"kURLKey";
 
 - (void)archiveData {
     @synchronized (self.internalCacheFragments) {
-        [NSKeyedArchiver archiveRootObject:self toFile:self.filePath];
+        NSError *archiveError = nil;
+        NSData *archiveData = [NSKeyedArchiver archivedDataWithRootObject:self requiringSecureCoding:NO error:&archiveError];
+        if (archiveData) {
+            [archiveData writeToFile:self.filePath atomically:YES];
+        }
     }
 }
 
@@ -247,8 +261,11 @@ static NSString *kURLKey = @"kURLKey";
     VIContentInfo *contentInfo = [VIContentInfo new];
     
     NSString *fileExtension = [url pathExtension];
-    NSString *UTI = (__bridge_transfer NSString *)UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)fileExtension, NULL);
-    NSString *contentType = (__bridge_transfer NSString *)UTTypeCopyPreferredTagWithClass((__bridge CFStringRef)UTI, kUTTagClassMIMEType);
+    UTType *type = nil;
+    if (fileExtension.length > 0) {
+        type = [UTType typeWithFilenameExtension:fileExtension];
+    }
+    NSString *contentType = type.preferredMIMEType;
     if (!contentType) {
         contentType = @"application/octet-stream";
     }

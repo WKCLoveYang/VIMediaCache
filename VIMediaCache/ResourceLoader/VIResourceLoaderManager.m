@@ -51,6 +51,10 @@ static const void *kVIResourceLoaderManagerRetainKey = &kVIResourceLoaderManager
             NSString *originStr = [resourceURL absoluteString];
             originStr = [originStr stringByReplacingOccurrencesOfString:kCacheScheme withString:@""];
             originURL = [NSURL URLWithString:originStr];
+            if (!originURL) {
+                [loadingRequest finishLoadingWithError:[self invalidRequestURLErrorWithURL:resourceURL]];
+                return NO;
+            }
             loader = [[VIResourceLoader alloc] initWithURL:originURL];
             loader.delegate = self;
             NSString *key = [self keyForResourceLoaderWithURL:resourceURL];
@@ -78,6 +82,13 @@ static const void *kVIResourceLoaderManagerRetainKey = &kVIResourceLoaderManager
 }
 
 #pragma mark - Helper
+
+- (NSError *)invalidRequestURLErrorWithURL:(NSURL *)requestURL {
+    NSString *description = [NSString stringWithFormat:@"Invalid media url generated from request: %@", requestURL.absoluteString ?: @""];
+    return [NSError errorWithDomain:@"com.vimediacache"
+                               code:-2
+                           userInfo:@{NSLocalizedDescriptionKey: description}];
+}
 
 - (NSString *)keyForResourceLoaderWithURL:(NSURL *)requestURL {
     if([[requestURL absoluteString] hasPrefix:kCacheScheme]){

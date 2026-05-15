@@ -20,6 +20,7 @@ NSString * const MCResourceLoaderErrorDomain = @"LSFilePlayerResourceLoaderError
 @property (nonatomic, strong) VIMediaCacheWorker *cacheWorker;
 @property (nonatomic, strong) VIMediaDownloader *mediaDownloader;
 @property (nonatomic, strong) NSMutableArray<VIResourceLoadingRequestWorker *> *pendingRequestWorkers;
+@property (nonatomic, strong) NSRecursiveLock *pendingRequestWorkersLock;
 
 @property (nonatomic, getter=isCancelled) BOOL cancelled;
 
@@ -39,6 +40,7 @@ NSString * const MCResourceLoaderErrorDomain = @"LSFilePlayerResourceLoaderError
         _cacheWorker = [[VIMediaCacheWorker alloc] initWithURL:url];
         _mediaDownloader = [[VIMediaDownloader alloc] initWithURL:url cacheWorker:_cacheWorker];
         _pendingRequestWorkers = [NSMutableArray array];
+        _pendingRequestWorkersLock = [[NSRecursiveLock alloc] init];
     }
     return self;
 }
@@ -49,7 +51,12 @@ NSString * const MCResourceLoaderErrorDomain = @"LSFilePlayerResourceLoaderError
 }
 
 - (void)addRequest:(AVAssetResourceLoadingRequest *)request {
-    if (self.pendingRequestWorkers.count > 0) {
+    BOOL hasPendingRequestWorkers = NO;
+    [self.pendingRequestWorkersLock lock];
+    hasPendingRequestWorkers = self.pendingRequestWorkers.count > 0;
+    [self.pendingRequestWorkersLock unlock];
+
+    if (hasPendingRequestWorkers) {
         [self startNoCacheWorkerWithRequest:request];
     } else {
         [self startWorkerWithRequest:request];
@@ -58,6 +65,7 @@ NSString * const MCResourceLoaderErrorDomain = @"LSFilePlayerResourceLoaderError
 
 - (void)removeRequest:(AVAssetResourceLoadingRequest *)request {
     __block VIResourceLoadingRequestWorker *requestWorker = nil;
+    [self.pendingRequestWorkersLock lock];
     [self.pendingRequestWorkers enumerateObjectsUsingBlock:^(VIResourceLoadingRequestWorker *  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
         if (obj.request == request) {
             requestWorker = obj;
@@ -68,11 +76,15 @@ NSString * const MCResourceLoaderErrorDomain = @"LSFilePlayerResourceLoaderError
         [requestWorker finish];
         [self.pendingRequestWorkers removeObject:requestWorker];
     }
+    [self.pendingRequestWorkersLock unlock];
 }
 
 - (void)cancel {
     [self.mediaDownloader cancel];
+
+    [self.pendingRequestWorkersLock lock];
     [self.pendingRequestWorkers removeAllObjects];
+    [self.pendingRequestWorkersLock unlock];
     
     [[VIMediaDownloaderStatus shared] removeURL:self.url];
 }
@@ -84,7 +96,12 @@ NSString * const MCResourceLoaderErrorDomain = @"LSFilePlayerResourceLoaderError
     if (error && [self.delegate respondsToSelector:@selector(resourceLoader:didFailWithError:)]) {
         [self.delegate resourceLoader:self didFailWithError:error];
     }
-    if (self.pendingRequestWorkers.count == 0) {
+    BOOL hasPendingRequestWorkers = NO;
+    [self.pendingRequestWorkersLock lock];
+    hasPendingRequestWorkers = self.pendingRequestWorkers.count > 0;
+    [self.pendingRequestWorkersLock unlock];
+
+    if (!hasPendingRequestWorkers) {
         [[VIMediaDownloaderStatus shared] removeURL:self.url];
     }
 }
@@ -96,7 +113,9 @@ NSString * const MCResourceLoaderErrorDomain = @"LSFilePlayerResourceLoaderError
     VIMediaDownloader *mediaDownloader = [[VIMediaDownloader alloc] initWithURL:self.url cacheWorker:self.cacheWorker];
     VIResourceLoadingRequestWorker *requestWorker = [[VIResourceLoadingRequestWorker alloc] initWithMediaDownloader:mediaDownloader
                                                                                              resourceLoadingRequest:request];
+    [self.pendingRequestWorkersLock lock];
     [self.pendingRequestWorkers addObject:requestWorker];
+    [self.pendingRequestWorkersLock unlock];
     requestWorker.delegate = self;
     [requestWorker startWork];
 }
@@ -105,7 +124,9 @@ NSString * const MCResourceLoaderErrorDomain = @"LSFilePlayerResourceLoaderError
     [[VIMediaDownloaderStatus shared] addURL:self.url];
     VIResourceLoadingRequestWorker *requestWorker = [[VIResourceLoadingRequestWorker alloc] initWithMediaDownloader:self.mediaDownloader
                                                                                              resourceLoadingRequest:request];
+    [self.pendingRequestWorkersLock lock];
     [self.pendingRequestWorkers addObject:requestWorker];
+    [self.pendingRequestWorkersLock unlock];
     requestWorker.delegate = self;
     [requestWorker startWork];
     

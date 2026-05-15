@@ -87,7 +87,9 @@ static NSString *VIMediaCacheErrorDoamin = @"com.vimediacache";
             [self.internalCacheConfiguration addCacheFragment:range];
         } @catch (NSException *exception) {
             NSLog(@"write to file error");
-            *error = [NSError errorWithDomain:exception.name code:123 userInfo:@{NSLocalizedDescriptionKey: exception.reason, @"exception": exception}];
+            if (error) {
+                *error = [NSError errorWithDomain:exception.name code:123 userInfo:@{NSLocalizedDescriptionKey: exception.reason, @"exception": exception}];
+            }
         }
     }
 }
@@ -100,7 +102,9 @@ static NSString *VIMediaCacheErrorDoamin = @"com.vimediacache";
             return data;
         } @catch (NSException *exception) {
             NSLog(@"read cached data error %@",exception);
-            *error = [NSError errorWithDomain:exception.name code:123 userInfo:@{NSLocalizedDescriptionKey: exception.reason, @"exception": exception}];
+            if (error) {
+                *error = [NSError errorWithDomain:exception.name code:123 userInfo:@{NSLocalizedDescriptionKey: exception.reason, @"exception": exception}];
+            }
         }
     }
     return nil;
@@ -191,7 +195,9 @@ static NSString *VIMediaCacheErrorDoamin = @"com.vimediacache";
         [self.writeFileHandle synchronizeFile];
     } @catch (NSException *exception) {
         NSLog(@"read cached data error %@", exception);
-        *error = [NSError errorWithDomain:exception.name code:123 userInfo:@{NSLocalizedDescriptionKey: exception.reason, @"exception": exception}];
+        if (error) {
+            *error = [NSError errorWithDomain:exception.name code:123 userInfo:@{NSLocalizedDescriptionKey: exception.reason, @"exception": exception}];
+        }
     }
 }
 
