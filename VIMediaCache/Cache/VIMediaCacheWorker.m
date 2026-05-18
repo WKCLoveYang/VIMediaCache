@@ -29,6 +29,7 @@ static NSString *VIMediaCacheErrorDoamin = @"com.vimediacache";
 @property (nonatomic, strong) NSDate *startWriteDate;
 @property (nonatomic) float writeBytes;
 @property (nonatomic) BOOL writting;
+@property (atomic) BOOL fileHandleClosed;
 
 @end
 
@@ -37,8 +38,7 @@ static NSString *VIMediaCacheErrorDoamin = @"com.vimediacache";
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self save];
-    [_readFileHandle closeFile];
-    [_writeFileHandle closeFile];
+    [self safelyCloseFileHandles];
 }
 
 - (instancetype)initWithURL:(NSURL *)url {
@@ -202,9 +202,17 @@ static NSString *VIMediaCacheErrorDoamin = @"com.vimediacache";
 }
 
 - (void)save {
-    @synchronized (self.writeFileHandle) {
-        [self.writeFileHandle synchronizeFile];
-        [self.internalCacheConfiguration save];
+    @synchronized (self) {
+        if (self.fileHandleClosed || !self.writeFileHandle) {
+            return;
+        }
+        @try {
+            [self.writeFileHandle synchronizeFile];
+            [self.internalCacheConfiguration save];
+        } @catch (NSException *exception) {
+            NSLog(@"save cache error %@", exception);
+            [self safelyCloseFileHandles];
+        }
     }
 }
 
@@ -230,6 +238,23 @@ static NSString *VIMediaCacheErrorDoamin = @"com.vimediacache";
 
 - (void)applicationDidEnterBackground:(NSNotification *)notification {
     [self save];
+}
+
+- (void)safelyCloseFileHandles {
+    @synchronized (self) {
+        if (self.fileHandleClosed) {
+            return;
+        }
+        self.fileHandleClosed = YES;
+        @try {
+            [self.readFileHandle closeFile];
+        } @catch (__unused NSException *exception) {}
+        @try {
+            [self.writeFileHandle closeFile];
+        } @catch (__unused NSException *exception) {}
+        self.readFileHandle = nil;
+        self.writeFileHandle = nil;
+    }
 }
 
 @end

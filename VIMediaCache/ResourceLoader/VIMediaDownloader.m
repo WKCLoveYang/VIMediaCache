@@ -404,6 +404,7 @@ didCompleteWithError:(nullable NSError *)error {
 @property (nonatomic, strong) VIActionWorker *actionWorker;
 
 @property (nonatomic) BOOL downloadToEnd;
+@property (atomic) BOOL finishCallbackSent;
 
 @end
 
@@ -428,6 +429,7 @@ didCompleteWithError:(nullable NSError *)error {
 - (void)downloadTaskFromOffset:(unsigned long long)fromOffset
                         length:(NSUInteger)length
                          toEnd:(BOOL)toEnd {
+    self.finishCallbackSent = NO;
     // ---
     NSRange range = NSMakeRange((NSUInteger)fromOffset, length);
     
@@ -455,6 +457,7 @@ didCompleteWithError:(nullable NSError *)error {
 
 - (void)downloadFromStartToEnd {
     // ---
+    self.finishCallbackSent = NO;
     self.downloadToEnd = YES;
     NSRange range = NSMakeRange(0, 2);
     NSArray *actions = [self.cacheWorker cachedDataActionsForRange:range];
@@ -475,6 +478,10 @@ didCompleteWithError:(nullable NSError *)error {
 #pragma mark - VIActionWorkerDelegate
 
 - (void)actionWorker:(VIActionWorker *)actionWorker didReceiveResponse:(NSURLResponse *)response {
+    if (actionWorker != self.actionWorker) {
+        return;
+    }
+
     if (!self.info) {
         VIContentInfo *info = [VIContentInfo new];
         
@@ -531,12 +538,20 @@ didCompleteWithError:(nullable NSError *)error {
 }
 
 - (void)actionWorker:(VIActionWorker *)actionWorker didReceiveData:(NSData *)data isLocal:(BOOL)isLocal {
+    if (actionWorker != self.actionWorker) {
+        return;
+    }
+
     if ([self.delegate respondsToSelector:@selector(mediaDownloader:didReceiveData:)]) {
         [self.delegate mediaDownloader:self didReceiveData:data];
     }
 }
 
 - (void)actionWorker:(VIActionWorker *)actionWorker didFinishWithError:(NSError *)error {
+    if (actionWorker != self.actionWorker) {
+        return;
+    }
+
     [[VIMediaDownloaderStatus shared] removeURL:self.url];
     
     if (!error && self.downloadToEnd) {
@@ -550,8 +565,15 @@ didCompleteWithError:(nullable NSError *)error {
         }
         [self downloadTaskFromOffset:2 length:(NSUInteger)(contentLength - 2) toEnd:YES];
     } else {
-        if ([self.delegate respondsToSelector:@selector(mediaDownloader:didFinishedWithError:)]) {
-            [self.delegate mediaDownloader:self didFinishedWithError:error];
+        @synchronized (self) {
+            if (self.finishCallbackSent) {
+                return;
+            }
+            self.finishCallbackSent = YES;
+        }
+        id<VIMediaDownloaderDelegate> delegate = self.delegate;
+        if ([delegate respondsToSelector:@selector(mediaDownloader:didFinishedWithError:)]) {
+            [delegate mediaDownloader:self didFinishedWithError:error];
         }
     }
 }
