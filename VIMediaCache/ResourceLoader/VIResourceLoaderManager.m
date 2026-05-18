@@ -10,6 +10,7 @@
 #import "VIResourceLoader.h"
 #import <objc/runtime.h>
 
+static NSString *kCurrentVersion = @"0.5";
 static NSString *kCacheScheme = @"VIMediaCache:";
 static const void *kVIResourceLoaderManagerRetainKey = &kVIResourceLoaderManagerRetainKey;
 
